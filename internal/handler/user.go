@@ -8,14 +8,21 @@ import (
 	"net/http"
 	"strconv"
 
-	"user-api/internal/db"
 	"user-api/internal/model"
 
 	"github.com/go-chi/chi"
 )
 
+type UserStorage interface {
+	GetUsers() ([]model.User, error)
+	GetUserByID(id int) (*model.User, error)
+	CreateUser(user *model.User) error
+	UpdateUser(user *model.User) error
+	DeleteUser(id int) error
+}
+
 type UserHandler struct {
-	DB *sql.DB
+	Storage UserStorage
 }
 
 func responseWithJSON(w http.ResponseWriter, statuscode int, data any) {
@@ -53,7 +60,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = db.CreateUser(h.DB, &user); err != nil {
+	if err = h.Storage.CreateUser(&user); err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to create user")
 		return
 	}
@@ -62,7 +69,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := db.GetUsers(h.DB)
+	users, err := h.Storage.GetUsers()
 	if err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to receive users")
 		return
@@ -78,7 +85,7 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := db.GetUserByID(h.DB, id)
+	user, err := h.Storage.GetUserByID(id)
 	if err == sql.ErrNoRows {
 		errorWithJSON(w, http.StatusNotFound, "User not found")
 		return
@@ -112,7 +119,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	user.ID = id
 
-	err = db.UpdateUser(h.DB, &user)
+	err = h.Storage.UpdateUser(&user)
 	if err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to update user")
 		return
@@ -128,7 +135,7 @@ func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = db.DeleteUser(h.DB, id)
+	err = h.Storage.DeleteUser(id)
 	if err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to delete user")
 		return

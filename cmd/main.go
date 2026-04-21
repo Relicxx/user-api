@@ -16,14 +16,15 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("no .env file, using environment variables")
 	}
-	db, err := db.ConnectDB()
+	dbs, err := db.ConnectDB()
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer db.Close()
+	defer dbs.Close()
 
+	storage := &db.UserStorage{DB: dbs}
 	h := &handler.UserHandler{
-		DB: db,
+		Storage: storage,
 	}
 
 	r := chi.NewRouter()

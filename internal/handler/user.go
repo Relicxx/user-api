@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
 
+	"user-api/internal/broker"
 	"user-api/internal/cache"
 	"user-api/internal/model"
 
@@ -24,8 +26,9 @@ type UserStorage interface {
 }
 
 type UserHandler struct {
-	Storage UserStorage
-	Cache   *cache.RedisCache
+	Storage  UserStorage
+	Cache    *cache.RedisCache
+	Producer *broker.KafkaProducer
 }
 
 func responseWithJSON(w http.ResponseWriter, statuscode int, data any) {
@@ -66,6 +69,10 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if err = h.Storage.CreateUser(&user); err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to create user")
 		return
+	}
+
+	if err := h.Producer.PublishUserCreated(r.Context(), &user); err != nil {
+		log.Printf("failed to publish user-created event: %v", err)
 	}
 
 	responseWithJSON(w, http.StatusCreated, map[string]string{"message": "User created successfully"})

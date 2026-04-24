@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 
+	"user-api/internal/broker"
 	"user-api/internal/cache"
 	"user-api/internal/db"
 	"user-api/internal/handler"
@@ -25,11 +26,14 @@ func main() {
 	defer dbs.Close()
 
 	redisCache := cache.NewRedisCache(os.Getenv("REDIS_URL"))
+	producer := broker.NewKafkaProducer(os.Getenv("KAFKA_ADDR"), "user-created")
+	defer producer.Close()
 
 	storage := &db.UserStorage{DB: dbs}
 	h := &handler.UserHandler{
-		Storage: storage,
-		Cache: redisCache,
+		Storage:  storage,
+		Cache:    redisCache,
+		Producer: producer,
 	}
 
 	r := chi.NewRouter()

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
+	"user-api/internal/cache"
 	"user-api/internal/model"
 
 	"github.com/go-chi/chi"
@@ -23,6 +25,7 @@ type UserStorage interface {
 
 type UserHandler struct {
 	Storage UserStorage
+	Cache   *cache.RedisCache
 }
 
 func responseWithJSON(w http.ResponseWriter, statuscode int, data any) {
@@ -85,6 +88,16 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	key := fmt.Sprintf("user:%d", id)
+
+	cached, err := h.Cache.Get(r.Context(), key)
+	if err == nil {
+		var user model.User
+		json.Unmarshal(cached, &user)
+		responseWithJSON(w, http.StatusOK, &user)
+		return
+	}
+
 	user, err := h.Storage.GetUserByID(id)
 	if err == sql.ErrNoRows {
 		errorWithJSON(w, http.StatusNotFound, "User not found")
@@ -94,6 +107,9 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to receive user")
 		return
 	}
+
+	data, _ := json.Marshal(user)
+	h.Cache.Set(r.Context(), key, data, 5*time.Minute)
 
 	responseWithJSON(w, http.StatusOK, user)
 }

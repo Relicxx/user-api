@@ -3,7 +3,9 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
+	"user-api/internal/cache"
 	"user-api/internal/db"
 	"user-api/internal/handler"
 
@@ -22,9 +24,12 @@ func main() {
 	}
 	defer dbs.Close()
 
+	redisCache := cache.NewRedisCache(os.Getenv("REDIS_URL"))
+
 	storage := &db.UserStorage{DB: dbs}
 	h := &handler.UserHandler{
 		Storage: storage,
+		Cache: redisCache,
 	}
 
 	r := chi.NewRouter()

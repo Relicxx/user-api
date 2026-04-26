@@ -15,9 +15,6 @@ import (
 	"github.com/go-chi/chi"
 )
 
-// TestLoad измеряет throughput хэндлеров при параллельных вызовах.
-// Используем httptest.ResponseRecorder — нет TCP overhead, изолируем сам хэндлер.
-// Запуск: go test -v -run TestLoad -count=1
 func TestLoad(t *testing.T) {
 	storage := &mockStorage{
 		users: []model.User{
@@ -28,7 +25,6 @@ func TestLoad(t *testing.T) {
 	}
 
 	cache := newMemCache()
-	// прогреваем кэш для сценария cache-hit
 	data, _ := json.Marshal(&storage.users[0])
 	cache.Set(nil, "user:1", data, 5*time.Minute) //nolint
 
@@ -38,7 +34,6 @@ func TestLoad(t *testing.T) {
 		Producer: noopProducer{},
 	}
 
-	// chi нужен чтобы URLParam работал в хэндлере GetUserByID
 	router := chi.NewRouter()
 	router.Get("/users", h.GetUsers)
 	router.Get("/users/{id}", h.GetUserByID)
@@ -94,17 +89,17 @@ func TestLoad(t *testing.T) {
 	)
 
 	run(
-		"GET /users/{id} — cache hit",
+		"GET /users/{id} cache-hit",
 		func() *http.Request { return httptest.NewRequest(http.MethodGet, "/users/1", nil) },
 		50, 5*time.Second,
 	)
 
 	run(
-		"GET /users/{id} — cache miss (fresh cache per req)",
+		"GET /users/{id} cache-miss",
 		func() *http.Request {
-			h.Cache = newMemCache() // сбрасываем кэш — каждый запрос промах
+			h.Cache = newMemCache()
 			return httptest.NewRequest(http.MethodGet, "/users/1", nil)
 		},
-		1, 5*time.Second, // 1 worker — cache reset не потокобезопасен
+		1, 5*time.Second,
 	)
 }

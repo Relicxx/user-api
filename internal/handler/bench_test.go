@@ -13,8 +13,6 @@ import (
 	"user-api/internal/model"
 )
 
-// --- in-memory cache mock (потокобезопасна через RWMutex) ---
-
 type memCache struct {
 	mu   sync.RWMutex
 	data map[string][]byte
@@ -45,15 +43,9 @@ type cacheMiss struct{}
 
 func (cacheMiss) Error() string { return "cache miss" }
 
-// --- no-op producer mock ---
-
 type noopProducer struct{}
 
 func (noopProducer) PublishUserCreated(_ context.Context, _ *model.User) error { return nil }
-
-// --- BenchmarkGetUsers ---
-// Мерим чистую скорость хэндлера: JSON-сериализация + HTTP overhead.
-// База данных заменена моком, поэтому это throughput самого хэндлера.
 
 func BenchmarkGetUsers(b *testing.B) {
 	storage := &mockStorage{
@@ -74,9 +66,6 @@ func BenchmarkGetUsers(b *testing.B) {
 		h.GetUsers(w, req)
 	}
 }
-
-// --- BenchmarkGetUserByID_CacheHit ---
-// Мерим путь cache-hit: Redis нашёл — вернули. БД не трогаем.
 
 func BenchmarkGetUserByID_CacheHit(b *testing.B) {
 	cache := newMemCache()
@@ -99,9 +88,6 @@ func BenchmarkGetUserByID_CacheHit(b *testing.B) {
 	}
 }
 
-// --- BenchmarkGetUserByID_CacheMiss ---
-// Мерим путь cache-miss: кэш пуст → мок-storage → записать в кэш → вернуть.
-
 func BenchmarkGetUserByID_CacheMiss(b *testing.B) {
 	storage := &mockStorage{}
 	storage.users = []model.User{{ID: 1, Name: "Alice", Email: "alice@example.com"}}
@@ -115,15 +101,12 @@ func BenchmarkGetUserByID_CacheMiss(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		h.Cache = newMemCache() // сбрасываем кэш на каждой итерации
+		h.Cache = newMemCache()
 		req := httptest.NewRequest(http.MethodGet, "/users/1", nil)
 		w := httptest.NewRecorder()
 		h.GetUserByID(w, req)
 	}
 }
-
-// --- BenchmarkCreateUser ---
-// Мерим: decode JSON → validate → mock insert → publish (noop).
 
 func BenchmarkCreateUser(b *testing.B) {
 	h := &UserHandler{

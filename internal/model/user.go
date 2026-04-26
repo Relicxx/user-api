@@ -1,4 +1,3 @@
-// Package model defines the User struct
 package model
 
 type User struct {

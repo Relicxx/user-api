@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,8 +11,6 @@ import (
 	"strconv"
 	"time"
 
-	"user-api/internal/broker"
-	"user-api/internal/cache"
 	"user-api/internal/model"
 
 	"github.com/go-chi/chi"
@@ -25,10 +24,19 @@ type UserStorage interface {
 	DeleteUser(id int) error
 }
 
+type Cache interface {
+	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	Get(ctx context.Context, key string) ([]byte, error)
+}
+
+type Producer interface {
+	PublishUserCreated(ctx context.Context, user *model.User) error
+}
+
 type UserHandler struct {
 	Storage  UserStorage
-	Cache    *cache.RedisCache
-	Producer *broker.KafkaProducer
+	Cache    Cache
+	Producer Producer
 }
 
 func responseWithJSON(w http.ResponseWriter, statuscode int, data any) {

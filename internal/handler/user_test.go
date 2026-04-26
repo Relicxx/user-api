@@ -18,6 +18,11 @@ func (m *mockStorage) GetUsers() ([]model.User, error) {
 }
 
 func (m *mockStorage) GetUserByID(id int) (*model.User, error) {
+	for _, u := range m.users {
+		if u.ID == id {
+			return &u, nil
+		}
+	}
 	return nil, nil
 }
 
@@ -54,7 +59,7 @@ func TestGetUsers(t *testing.T) {
 
 func TestCreateUser(t *testing.T) {
 	storage := &mockStorage{}
-	h := &UserHandler{Storage: storage}
+	h := &UserHandler{Storage: storage, Producer: noopProducer{}}
 
 	tests := []struct {
 		body string

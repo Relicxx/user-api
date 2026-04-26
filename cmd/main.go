@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 
 	"user-api/internal/broker"
@@ -48,6 +49,11 @@ func main() {
 		r.Put("/{id}", h.UpdateUser)
 		r.Delete("/{id}", h.DeleteUser)
 	})
+
+	go func() {
+		log.Println("pprof listening on :6060")
+		log.Println(http.ListenAndServe(":6060", nil))
+	}()
 
 	log.Println("Server is running on port 8080")
 	if err := http.ListenAndServe(":8080", r); err != nil {

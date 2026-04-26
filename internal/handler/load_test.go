@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,7 +27,7 @@ func TestLoad(t *testing.T) {
 
 	cache := newMemCache()
 	data, _ := json.Marshal(&storage.users[0])
-	cache.Set(nil, "user:1", data, 5*time.Minute) //nolint
+	cache.Set(context.Background(), "user:1", data, 5*time.Minute)
 
 	h := &UserHandler{
 		Storage:  storage,

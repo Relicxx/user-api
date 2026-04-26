@@ -6,15 +6,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"user-api/internal/model"
 )
 
-// --- in-memory cache mock ---
+// --- in-memory cache mock (потокобезопасна через RWMutex) ---
 
 type memCache struct {
+	mu   sync.RWMutex
 	data map[string][]byte
 }
 
@@ -23,11 +25,15 @@ func newMemCache() *memCache {
 }
 
 func (m *memCache) Set(_ context.Context, key string, value []byte, _ time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.data[key] = value
 	return nil
 }
 
 func (m *memCache) Get(_ context.Context, key string) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	v, ok := m.data[key]
 	if !ok {
 		return nil, &cacheMiss{}

@@ -31,10 +31,10 @@ func ConnectDB() (*sql.DB, error) {
 func (s *UserStorage) CreateUser(user *model.User) error {
 	query := `INSERT INTO users
 	(name, email)
-	VALUES ($1, $2)`
-	_, err := s.DB.Exec(query, user.Name, user.Email)
+	VALUES ($1, $2)
+	RETURNING id`
 
-	return err
+	return s.DB.QueryRow(query, user.Name, user.Email).Scan(&user.ID)
 }
 
 func (s *UserStorage) GetUsers() ([]model.User, error) {

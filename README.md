@@ -128,6 +128,8 @@ curl -X DELETE http://localhost:8080/users/1
 1. Check Redis → cache hit: return immediately, skip DB.
 2. Cache miss → query PostgreSQL → store result in Redis with 5-minute TTL → return.
 
+On `PUT`/`DELETE` the cached `user:{id}` key is invalidated, so subsequent reads never serve stale data.
+
 ## Kafka events
 
 Creating a user publishes a `user-created` event to the `user-created` topic.
@@ -150,4 +152,23 @@ Handler tests use a mock `UserStorage` interface — no real DB required:
 
 ```bash
 go test ./internal/handler/...
+```
+
+## Benchmarks & load test
+
+`bench_test.go` (`go test -bench .`) and an in-process load test (`go test -run TestLoad`)
+exercise the HTTP layer end-to-end through the chi router with an in-memory storage/cache mock.
+They measure handler + JSON (de)serialization + cache-aside throughput in isolation — **not**
+real PostgreSQL/Redis latency, so treat them as relative figures, not production numbers.
+
+Measured locally (AMD, Go 1.26, 50 goroutines, 5s per case):
+
+| Case | Throughput |
+|---|---|
+| `GET /users/{id}` cache-hit | ~200K req/s |
+| `GET /users/{id}` cache-miss (mock store) | ~110K req/s |
+
+```bash
+go test ./internal/handler/ -run TestLoad -v   # in-process load test
+go test ./internal/handler/ -bench . -benchmem  # micro-benchmarks
 ```

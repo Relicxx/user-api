@@ -26,6 +26,7 @@ type UserStorage interface {
 type Cache interface {
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	Get(ctx context.Context, key string) ([]byte, error)
+	Del(ctx context.Context, key string) error
 }
 
 type Producer interface {
@@ -82,7 +83,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		log.Printf("failed to publish user-created event: %v", err)
 	}
 
-	responseWithJSON(w, http.StatusCreated, map[string]string{"message": "User created successfully"})
+	responseWithJSON(w, http.StatusCreated, user)
 }
 
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +156,8 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.invalidateUser(r.Context(), id)
+
 	responseWithJSON(w, http.StatusOK, map[string]string{"message": "User updated successfully"})
 }
 
@@ -171,5 +174,18 @@ func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.invalidateUser(r.Context(), id)
+
 	responseWithJSON(w, http.StatusOK, map[string]string{"message": "User deleted successfully"})
+}
+
+// invalidateUser удаляет пользователя из кеша после изменения/удаления,
+// чтобы cache-aside не отдавал устаревшие данные.
+func (h *UserHandler) invalidateUser(ctx context.Context, id int) {
+	if h.Cache == nil {
+		return
+	}
+	if err := h.Cache.Del(ctx, fmt.Sprintf("user:%d", id)); err != nil {
+		log.Printf("failed to invalidate cache for user %d: %v", id, err)
+	}
 }

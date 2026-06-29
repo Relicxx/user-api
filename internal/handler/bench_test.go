@@ -39,6 +39,13 @@ func (m *memCache) Get(_ context.Context, key string) ([]byte, error) {
 	return v, nil
 }
 
+func (m *memCache) Del(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.data, key)
+	return nil
+}
+
 type cacheMiss struct{}
 
 func (cacheMiss) Error() string { return "cache miss" }

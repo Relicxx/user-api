@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,11 +17,11 @@ import (
 )
 
 type UserStorage interface {
-	GetUsers() ([]model.User, error)
-	GetUserByID(id int) (*model.User, error)
-	CreateUser(user *model.User) error
-	UpdateUser(user *model.User) error
-	DeleteUser(id int) error
+	GetUsers(ctx context.Context) ([]model.User, error)
+	GetUserByID(ctx context.Context, id int) (*model.User, error)
+	CreateUser(ctx context.Context, user *model.User) error
+	UpdateUser(ctx context.Context, user *model.User) error
+	DeleteUser(ctx context.Context, id int) error
 }
 
 type Cache interface {
@@ -74,7 +75,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = h.Storage.CreateUser(&user); err != nil {
+	if err = h.Storage.CreateUser(r.Context(), &user); err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to create user")
 		return
 	}
@@ -87,7 +88,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.Storage.GetUsers()
+	users, err := h.Storage.GetUsers(r.Context())
 	if err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to receive users")
 		return
@@ -113,13 +114,17 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.Storage.GetUserByID(id)
-	if err == sql.ErrNoRows {
+	user, err := h.Storage.GetUserByID(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
 		errorWithJSON(w, http.StatusNotFound, "User not found")
 		return
 	}
 	if err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to receive user")
+		return
+	}
+	if user == nil {
+		errorWithJSON(w, http.StatusNotFound, "User not found")
 		return
 	}
 
@@ -150,7 +155,11 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	user.ID = id
 
-	err = h.Storage.UpdateUser(&user)
+	err = h.Storage.UpdateUser(r.Context(), &user)
+	if errors.Is(err, sql.ErrNoRows) {
+		errorWithJSON(w, http.StatusNotFound, "User not found")
+		return
+	}
 	if err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to update user")
 		return
@@ -168,7 +177,11 @@ func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.Storage.DeleteUser(id)
+	err = h.Storage.DeleteUser(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		errorWithJSON(w, http.StatusNotFound, "User not found")
+		return
+	}
 	if err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to delete user")
 		return

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,29 +15,39 @@ type mockStorage struct {
 	users []model.User
 }
 
-func (m *mockStorage) GetUsers() ([]model.User, error) {
+func (m *mockStorage) GetUsers(_ context.Context) ([]model.User, error) {
 	return m.users, nil
 }
 
-func (m *mockStorage) GetUserByID(id int) (*model.User, error) {
+func (m *mockStorage) GetUserByID(_ context.Context, id int) (*model.User, error) {
 	for _, u := range m.users {
 		if u.ID == id {
 			return &u, nil
 		}
 	}
-	return nil, nil
+	return nil, sql.ErrNoRows
 }
 
-func (m *mockStorage) CreateUser(user *model.User) error {
+func (m *mockStorage) CreateUser(_ context.Context, user *model.User) error {
 	return nil
 }
 
-func (m *mockStorage) UpdateUser(user *model.User) error {
-	return nil
+func (m *mockStorage) UpdateUser(_ context.Context, user *model.User) error {
+	for _, u := range m.users {
+		if u.ID == user.ID {
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
 
-func (m *mockStorage) DeleteUser(id int) error {
-	return nil
+func (m *mockStorage) DeleteUser(_ context.Context, id int) error {
+	for _, u := range m.users {
+		if u.ID == id {
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
 
 func TestGetUsers(t *testing.T) {

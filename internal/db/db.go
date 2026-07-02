@@ -1,11 +1,20 @@
 package db
 
 import (
+	"context"
 	"database/sql"
+	"time"
 
 	"user-api/internal/model"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+)
+
+const (
+	maxOpenConns    = 25
+	maxIdleConns    = 25
+	connMaxLifetime = 5 * time.Minute
+	pingTimeout     = 5 * time.Second
 )
 
 type UserStorage struct {
@@ -18,27 +27,40 @@ func ConnectDB(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	err = db.Ping()
-	if err != nil {
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
+
+	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
 		return nil, err
 	}
 
 	return db, nil
 }
 
-func (s *UserStorage) CreateUser(user *model.User) error {
+func (s *UserStorage) Ping(ctx context.Context) error {
+	return s.DB.PingContext(ctx)
+}
+
+func (s *UserStorage) CreateUser(ctx context.Context, user *model.User) error {
 	query := `INSERT INTO users
 	(name, email)
 	VALUES ($1, $2)
 	RETURNING id`
 
-	return s.DB.QueryRow(query, user.Name, user.Email).Scan(&user.ID)
+	return s.DB.QueryRowContext(ctx, query, user.Name, user.Email).Scan(&user.ID)
 }
 
-func (s *UserStorage) GetUsers() ([]model.User, error) {
+func (s *UserStorage) GetUsers(ctx context.Context) ([]model.User, error) {
 	query := `SELECT id, name, email
-	FROM users`
-	rows, err := s.DB.Query(query)
+	FROM users
+	ORDER BY id`
+
+	rows, err := s.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -64,13 +86,13 @@ func (s *UserStorage) GetUsers() ([]model.User, error) {
 	return users, nil
 }
 
-func (s *UserStorage) GetUserByID(id int) (*model.User, error) {
+func (s *UserStorage) GetUserByID(ctx context.Context, id int) (*model.User, error) {
 	query := `SELECT id, name, email
 	FROM users
 	WHERE id = $1`
 
 	var user model.User
-	err := s.DB.QueryRow(query, id).Scan(&user.ID, &user.Name, &user.Email)
+	err := s.DB.QueryRowContext(ctx, query, id).Scan(&user.ID, &user.Name, &user.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -78,19 +100,43 @@ func (s *UserStorage) GetUserByID(id int) (*model.User, error) {
 	return &user, nil
 }
 
-func (s *UserStorage) UpdateUser(user *model.User) error {
+func (s *UserStorage) UpdateUser(ctx context.Context, user *model.User) error {
 	query := `UPDATE users
 	SET name = $1, email = $2
 	WHERE id = $3`
-	_, err := s.DB.Exec(query, user.Name, user.Email, user.ID)
 
-	return err
+	res, err := s.DB.ExecContext(ctx, query, user.Name, user.Email, user.ID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }
 
-func (s *UserStorage) DeleteUser(id int) error {
+func (s *UserStorage) DeleteUser(ctx context.Context, id int) error {
 	query := `DELETE FROM users
 	WHERE id = $1`
-	_, err := s.DB.Exec(query, id)
 
-	return err
+	res, err := s.DB.ExecContext(ctx, query, id)
+	if err != nil {
+		return err
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }

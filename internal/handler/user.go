@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
+	"user-api/internal/db"
 	"user-api/internal/model"
 
 	"github.com/go-chi/chi/v5"
@@ -55,10 +59,27 @@ func parseID(r *http.Request) (int, error) {
 	return strconv.Atoi(strID)
 }
 
+const (
+	maxNameLength  = 100
+	maxEmailLength = 254
+)
+
+var emailRegexp = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+
 func validateUser(user *model.User) error {
+	user.Name = strings.TrimSpace(user.Name)
+	user.Email = strings.TrimSpace(user.Email)
+
 	if user.Name == "" || user.Email == "" {
 		return fmt.Errorf("name and email are required")
 	}
+	if utf8.RuneCountInString(user.Name) > maxNameLength {
+		return fmt.Errorf("name must be at most %d characters", maxNameLength)
+	}
+	if len(user.Email) > maxEmailLength || !emailRegexp.MatchString(user.Email) {
+		return fmt.Errorf("invalid email format")
+	}
+
 	return nil
 }
 
@@ -75,7 +96,12 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = h.Storage.CreateUser(r.Context(), &user); err != nil {
+	err = h.Storage.CreateUser(r.Context(), &user)
+	if errors.Is(err, db.ErrDuplicateEmail) {
+		errorWithJSON(w, http.StatusConflict, "Email already exists")
+		return
+	}
+	if err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to create user")
 		return
 	}
@@ -158,6 +184,10 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	err = h.Storage.UpdateUser(r.Context(), &user)
 	if errors.Is(err, sql.ErrNoRows) {
 		errorWithJSON(w, http.StatusNotFound, "User not found")
+		return
+	}
+	if errors.Is(err, db.ErrDuplicateEmail) {
+		errorWithJSON(w, http.StatusConflict, "Email already exists")
 		return
 	}
 	if err != nil {

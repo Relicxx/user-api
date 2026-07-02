@@ -3,12 +3,23 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"user-api/internal/model"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+var ErrDuplicateEmail = errors.New("email already exists")
+
+const uniqueViolationCode = "23505"
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolationCode
+}
 
 const (
 	maxOpenConns    = 25
@@ -52,7 +63,12 @@ func (s *UserStorage) CreateUser(ctx context.Context, user *model.User) error {
 	VALUES ($1, $2)
 	RETURNING id`
 
-	return s.DB.QueryRowContext(ctx, query, user.Name, user.Email).Scan(&user.ID)
+	err := s.DB.QueryRowContext(ctx, query, user.Name, user.Email).Scan(&user.ID)
+	if isUniqueViolation(err) {
+		return ErrDuplicateEmail
+	}
+
+	return err
 }
 
 func (s *UserStorage) GetUsers(ctx context.Context) ([]model.User, error) {
@@ -102,10 +118,13 @@ func (s *UserStorage) GetUserByID(ctx context.Context, id int) (*model.User, err
 
 func (s *UserStorage) UpdateUser(ctx context.Context, user *model.User) error {
 	query := `UPDATE users
-	SET name = $1, email = $2
+	SET name = $1, email = $2, updated_at = now()
 	WHERE id = $3`
 
 	res, err := s.DB.ExecContext(ctx, query, user.Name, user.Email, user.ID)
+	if isUniqueViolation(err) {
+		return ErrDuplicateEmail
+	}
 	if err != nil {
 		return err
 	}

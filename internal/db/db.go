@@ -2,7 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"os"
 
 	"user-api/internal/model"
 
@@ -13,8 +12,7 @@ type UserStorage struct {
 	DB *sql.DB
 }
 
-func ConnectDB() (*sql.DB, error) {
-	dsn := os.Getenv("DATABASE_URL")
+func ConnectDB(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, err

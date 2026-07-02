@@ -4,10 +4,10 @@ import (
 	"log"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
 
 	"user-api/internal/broker"
 	"user-api/internal/cache"
+	"user-api/internal/config"
 	"user-api/internal/db"
 	"user-api/internal/handler"
 
@@ -20,14 +20,20 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("no .env file, using environment variables")
 	}
-	dbs, err := db.ConnectDB()
+
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
+
+	dbs, err := db.ConnectDB(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer dbs.Close()
 
-	redisCache := cache.NewRedisCache(os.Getenv("REDIS_URL"))
-	producer := broker.NewKafkaProducer(os.Getenv("KAFKA_ADDR"), "user-created")
+	redisCache := cache.NewRedisCache(cfg.RedisAddr)
+	producer := broker.NewKafkaProducer(cfg.KafkaAddr, cfg.KafkaTopic)
 	defer producer.Close()
 
 	storage := &db.UserStorage{DB: dbs}

@@ -15,8 +15,15 @@ type mockStorage struct {
 	users []model.User
 }
 
-func (m *mockStorage) GetUsers(_ context.Context) ([]model.User, error) {
-	return m.users, nil
+func (m *mockStorage) GetUsers(_ context.Context, limit, offset int) ([]model.User, error) {
+	if offset >= len(m.users) {
+		return nil, nil
+	}
+	end := offset + limit
+	if end > len(m.users) {
+		end = len(m.users)
+	}
+	return m.users[offset:end], nil
 }
 
 func (m *mockStorage) GetUserByID(_ context.Context, id int) (*model.User, error) {

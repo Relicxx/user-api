@@ -21,7 +21,7 @@ import (
 )
 
 type UserStorage interface {
-	GetUsers(ctx context.Context) ([]model.User, error)
+	GetUsers(ctx context.Context, limit, offset int) ([]model.User, error)
 	GetUserByID(ctx context.Context, id int) (*model.User, error)
 	CreateUser(ctx context.Context, user *model.User) error
 	UpdateUser(ctx context.Context, user *model.User) error
@@ -113,11 +113,50 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	responseWithJSON(w, http.StatusCreated, user)
 }
 
+const (
+	defaultLimit = 50
+	maxLimit     = 100
+)
+
+func parseLimitOffset(r *http.Request) (limit, offset int, err error) {
+	limit, offset = defaultLimit, 0
+
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, convErr := strconv.Atoi(v)
+		if convErr != nil || n < 1 {
+			return 0, 0, fmt.Errorf("limit must be a positive integer")
+		}
+		if n > maxLimit {
+			n = maxLimit
+		}
+		limit = n
+	}
+
+	if v := r.URL.Query().Get("offset"); v != "" {
+		n, convErr := strconv.Atoi(v)
+		if convErr != nil || n < 0 {
+			return 0, 0, fmt.Errorf("offset must be a non-negative integer")
+		}
+		offset = n
+	}
+
+	return limit, offset, nil
+}
+
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.Storage.GetUsers(r.Context())
+	limit, offset, err := parseLimitOffset(r)
+	if err != nil {
+		errorWithJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	users, err := h.Storage.GetUsers(r.Context(), limit, offset)
 	if err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to receive users")
 		return
+	}
+	if users == nil {
+		users = []model.User{}
 	}
 
 	responseWithJSON(w, http.StatusOK, users)

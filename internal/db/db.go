@@ -71,12 +71,13 @@ func (s *UserStorage) CreateUser(ctx context.Context, user *model.User) error {
 	return err
 }
 
-func (s *UserStorage) GetUsers(ctx context.Context) ([]model.User, error) {
+func (s *UserStorage) GetUsers(ctx context.Context, limit, offset int) ([]model.User, error) {
 	query := `SELECT id, name, email
 	FROM users
-	ORDER BY id`
+	ORDER BY id
+	LIMIT $1 OFFSET $2`
 
-	rows, err := s.DB.QueryContext(ctx, query)
+	rows, err := s.DB.QueryContext(ctx, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}

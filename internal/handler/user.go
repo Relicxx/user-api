@@ -45,7 +45,15 @@ type UserHandler struct {
 	Producer Producer
 }
 
-const cacheTTL = 5 * time.Minute
+const (
+	cacheTTL     = 5 * time.Minute
+	maxBodyBytes = 1 << 20 // 1 MiB
+)
+
+func decodeBody(w http.ResponseWriter, r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	return json.NewDecoder(r.Body).Decode(dst)
+}
 
 func responseWithJSON(w http.ResponseWriter, statuscode int, data any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -90,8 +98,13 @@ func validateUser(user *model.User) error {
 
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var user model.User
-	err := json.NewDecoder(r.Body).Decode(&user)
+	err := decodeBody(w, r, &user)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			errorWithJSON(w, http.StatusRequestEntityTooLarge, "Request body too large")
+			return
+		}
 		errorWithJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -226,8 +239,13 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var user model.User
-	err = json.NewDecoder(r.Body).Decode(&user)
+	err = decodeBody(w, r, &user)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			errorWithJSON(w, http.StatusRequestEntityTooLarge, "Request body too large")
+			return
+		}
 		errorWithJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"user-api/internal/cache"
 	"user-api/internal/model"
 )
 
@@ -34,7 +35,7 @@ func (m *memCache) Get(_ context.Context, key string) ([]byte, error) {
 	defer m.mu.RUnlock()
 	v, ok := m.data[key]
 	if !ok {
-		return nil, &cacheMiss{}
+		return nil, cache.ErrCacheMiss
 	}
 	return v, nil
 }
@@ -45,10 +46,6 @@ func (m *memCache) Del(_ context.Context, key string) error {
 	delete(m.data, key)
 	return nil
 }
-
-type cacheMiss struct{}
-
-func (cacheMiss) Error() string { return "cache miss" }
 
 type noopProducer struct{}
 

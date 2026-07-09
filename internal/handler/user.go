@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"user-api/internal/cache"
 	"user-api/internal/db"
 	"user-api/internal/model"
 
@@ -44,10 +45,14 @@ type UserHandler struct {
 	Producer Producer
 }
 
+const cacheTTL = 5 * time.Minute
+
 func responseWithJSON(w http.ResponseWriter, statuscode int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statuscode)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("failed to encode response: %v", err)
+	}
 }
 
 func errorWithJSON(w http.ResponseWriter, statuscode int, message string) {
@@ -171,12 +176,20 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 
 	key := fmt.Sprintf("user:%d", id)
 
-	cached, err := h.Cache.Get(r.Context(), key)
-	if err == nil {
-		var user model.User
-		json.Unmarshal(cached, &user)
-		responseWithJSON(w, http.StatusOK, &user)
-		return
+	if h.Cache != nil {
+		cached, cacheErr := h.Cache.Get(r.Context(), key)
+		switch {
+		case cacheErr == nil:
+			var user model.User
+			unmarshalErr := json.Unmarshal(cached, &user)
+			if unmarshalErr == nil {
+				responseWithJSON(w, http.StatusOK, &user)
+				return
+			}
+			log.Printf("corrupted cache entry for %s, falling back to db: %v", key, unmarshalErr)
+		case !errors.Is(cacheErr, cache.ErrCacheMiss):
+			log.Printf("cache get failed for %s: %v", key, cacheErr)
+		}
 	}
 
 	user, err := h.Storage.GetUserByID(r.Context(), id)
@@ -193,8 +206,14 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, _ := json.Marshal(user)
-	h.Cache.Set(r.Context(), key, data, 5*time.Minute)
+	if h.Cache != nil {
+		data, marshalErr := json.Marshal(user)
+		if marshalErr != nil {
+			log.Printf("failed to marshal user %d for cache: %v", id, marshalErr)
+		} else if setErr := h.Cache.Set(r.Context(), key, data, cacheTTL); setErr != nil {
+			log.Printf("cache set failed for %s: %v", key, setErr)
+		}
+	}
 
 	responseWithJSON(w, http.StatusOK, user)
 }

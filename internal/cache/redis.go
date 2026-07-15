@@ -40,3 +40,7 @@ func (r *RedisCache) Get(ctx context.Context, key string) ([]byte, error) {
 func (r *RedisCache) Del(ctx context.Context, key string) error {
 	return r.client.Del(ctx, key).Err()
 }
+
+func (r *RedisCache) Ping(ctx context.Context) error {
+	return r.client.Ping(ctx).Err()
+}

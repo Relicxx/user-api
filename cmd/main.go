@@ -42,11 +42,18 @@ func main() {
 		Cache:    redisCache,
 		Producer: producer,
 	}
+	health := &handler.HealthHandler{
+		DB:    storage,
+		Cache: redisCache,
+	}
 
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+
+	r.Get("/healthz", health.Healthz)
+	r.Get("/readyz", health.Readyz)
 
 	r.Route("/users", func(r chi.Router) {
 		r.Get("/", h.GetUsers)

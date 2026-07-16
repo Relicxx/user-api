@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"user-api/internal/broker"
 	"user-api/internal/cache"
@@ -16,19 +22,33 @@ import (
 	"github.com/joho/godotenv"
 )
 
+const (
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 10 * time.Second
+	writeTimeout      = 15 * time.Second
+	idleTimeout       = 60 * time.Second
+)
+
 func main() {
+	if err := run(); err != nil {
+		log.Printf("server exited with error: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	if err := godotenv.Load(); err != nil {
 		log.Println("no .env file, using environment variables")
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Invalid configuration: %v", err)
+		return err
 	}
 
 	dbs, err := db.ConnectDB(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		return err
 	}
 	defer dbs.Close()
 
@@ -63,13 +83,50 @@ func main() {
 		r.Delete("/{id}", h.DeleteUser)
 	})
 
+	if cfg.PprofEnabled {
+		go func() {
+			log.Printf("pprof listening on %s", cfg.PprofAddr)
+			if err := http.ListenAndServe(cfg.PprofAddr, nil); err != nil {
+				log.Printf("pprof server stopped: %v", err)
+			}
+		}()
+	}
+
+	srv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           r,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
 	go func() {
-		log.Println("pprof listening on :6060")
-		log.Println(http.ListenAndServe(":6060", nil))
+		log.Printf("server listening on %s", cfg.HTTPAddr)
+		errCh <- srv.ListenAndServe()
 	}()
 
-	log.Println("Server is running on port 8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	case <-ctx.Done():
+		log.Println("shutdown signal received")
 	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return err
+	}
+
+	log.Println("server stopped gracefully")
+
+	return nil
 }

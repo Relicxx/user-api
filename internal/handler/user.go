@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -59,7 +59,7 @@ func responseWithJSON(w http.ResponseWriter, statuscode int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statuscode)
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("failed to encode response: %v", err)
+		slog.Error("failed to encode response", "error", err)
 	}
 }
 
@@ -125,7 +125,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Producer.PublishUserCreated(r.Context(), &user); err != nil {
-		log.Printf("failed to publish user-created event: %v", err)
+		slog.Error("failed to publish user-created event", "user_id", user.ID, "error", err)
 	}
 
 	responseWithJSON(w, http.StatusCreated, user)
@@ -199,9 +199,9 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 				responseWithJSON(w, http.StatusOK, &user)
 				return
 			}
-			log.Printf("corrupted cache entry for %s, falling back to db: %v", key, unmarshalErr)
+			slog.Warn("corrupted cache entry, falling back to db", "key", key, "error", unmarshalErr)
 		case !errors.Is(cacheErr, cache.ErrCacheMiss):
-			log.Printf("cache get failed for %s: %v", key, cacheErr)
+			slog.Error("cache get failed", "key", key, "error", cacheErr)
 		}
 	}
 
@@ -222,9 +222,9 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 	if h.Cache != nil {
 		data, marshalErr := json.Marshal(user)
 		if marshalErr != nil {
-			log.Printf("failed to marshal user %d for cache: %v", id, marshalErr)
+			slog.Error("failed to marshal user for cache", "user_id", id, "error", marshalErr)
 		} else if setErr := h.Cache.Set(r.Context(), key, data, cacheTTL); setErr != nil {
-			log.Printf("cache set failed for %s: %v", key, setErr)
+			slog.Error("cache set failed", "key", key, "error", setErr)
 		}
 	}
 
@@ -305,6 +305,6 @@ func (h *UserHandler) invalidateUser(ctx context.Context, id int) {
 		return
 	}
 	if err := h.Cache.Del(ctx, fmt.Sprintf("user:%d", id)); err != nil {
-		log.Printf("failed to invalidate cache for user %d: %v", id, err)
+		slog.Error("failed to invalidate cache", "user_id", id, "error", err)
 	}
 }

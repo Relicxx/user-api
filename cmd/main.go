@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -30,15 +30,17 @@ const (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
 	if err := run(); err != nil {
-		log.Printf("server exited with error: %v", err)
+		slog.Error("server exited", "error", err)
 		os.Exit(1)
 	}
 }
 
 func run() error {
 	if err := godotenv.Load(); err != nil {
-		log.Println("no .env file, using environment variables")
+		slog.Info("no .env file, using environment variables")
 	}
 
 	cfg, err := config.Load()
@@ -85,9 +87,9 @@ func run() error {
 
 	if cfg.PprofEnabled {
 		go func() {
-			log.Printf("pprof listening on %s", cfg.PprofAddr)
+			slog.Info("pprof listening", "addr", cfg.PprofAddr)
 			if err := http.ListenAndServe(cfg.PprofAddr, nil); err != nil {
-				log.Printf("pprof server stopped: %v", err)
+				slog.Error("pprof server stopped", "error", err)
 			}
 		}()
 	}
@@ -106,7 +108,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("server listening on %s", cfg.HTTPAddr)
+		slog.Info("server listening", "addr", cfg.HTTPAddr)
 		errCh <- srv.ListenAndServe()
 	}()
 
@@ -116,7 +118,7 @@ func run() error {
 			return err
 		}
 	case <-ctx.Done():
-		log.Println("shutdown signal received")
+		slog.Info("shutdown signal received")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
@@ -126,7 +128,7 @@ func run() error {
 		return err
 	}
 
-	log.Println("server stopped gracefully")
+	slog.Info("server stopped gracefully")
 
 	return nil
 }

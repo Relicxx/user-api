@@ -59,7 +59,7 @@ func BenchmarkGetUsers(b *testing.B) {
 			{ID: 3, Name: "Charlie", Email: "charlie@example.com"},
 		},
 	}
-	h := &UserHandler{Storage: storage}
+	router := newRouter(&UserHandler{Storage: storage})
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -67,7 +67,7 @@ func BenchmarkGetUsers(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/users", nil)
 		w := httptest.NewRecorder()
-		h.GetUsers(w, req)
+		router.ServeHTTP(w, req)
 	}
 }
 
@@ -100,6 +100,7 @@ func BenchmarkGetUserByID_CacheMiss(b *testing.B) {
 		Storage: storage,
 		Cache:   newMemCache(),
 	}
+	router := newRouter(h)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -108,15 +109,15 @@ func BenchmarkGetUserByID_CacheMiss(b *testing.B) {
 		h.Cache = newMemCache()
 		req := httptest.NewRequest(http.MethodGet, "/users/1", nil)
 		w := httptest.NewRecorder()
-		h.GetUserByID(w, req)
+		router.ServeHTTP(w, req)
 	}
 }
 
 func BenchmarkCreateUser(b *testing.B) {
-	h := &UserHandler{
+	router := newRouter(&UserHandler{
 		Storage:  &mockStorage{},
 		Producer: noopProducer{},
-	}
+	})
 
 	body := `{"name":"Alice","email":"alice@example.com"}`
 
@@ -127,6 +128,6 @@ func BenchmarkCreateUser(b *testing.B) {
 		req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
-		h.CreateUser(w, req)
+		router.ServeHTTP(w, req)
 	}
 }

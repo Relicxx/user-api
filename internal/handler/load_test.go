@@ -30,9 +30,8 @@ func TestLoad(t *testing.T) {
 	cache.Set(context.Background(), "user:1", data, 5*time.Minute)
 
 	h := &UserHandler{
-		Storage:  storage,
-		Cache:    cache,
-		Producer: noopProducer{},
+		Storage: storage,
+		Cache:   cache,
 	}
 
 	router := chi.NewRouter()

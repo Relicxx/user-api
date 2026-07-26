@@ -8,6 +8,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"user-api/internal/config"
 	"user-api/internal/db"
 	"user-api/internal/handler"
+	"user-api/internal/outbox"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -55,14 +57,13 @@ func run() error {
 	defer dbs.Close()
 
 	redisCache := cache.NewRedisCache(cfg.RedisAddr)
-	producer := broker.NewKafkaProducer(cfg.KafkaAddr, cfg.KafkaTopic)
+	producer := broker.NewKafkaProducer(cfg.KafkaAddr)
 	defer producer.Close()
 
-	storage := &db.UserStorage{DB: dbs}
+	storage := &db.UserStorage{DB: dbs, EventTopic: cfg.KafkaTopic}
 	h := &handler.UserHandler{
-		Storage:  storage,
-		Cache:    redisCache,
-		Producer: producer,
+		Storage: storage,
+		Cache:   redisCache,
 	}
 	health := &handler.HealthHandler{
 		DB:    storage,
@@ -106,6 +107,26 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// The relay gets its own context so it keeps draining the outbox while
+	// the HTTP server finishes in-flight requests, and is stopped last.
+	relayCtx, relayCancel := context.WithCancel(context.Background())
+	defer relayCancel()
+
+	relay := outbox.NewRelay(
+		&db.OutboxStorage{DB: dbs},
+		producer,
+		cfg.OutboxPollInterval,
+		cfg.OutboxBatchSize,
+		slog.Default(),
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		relay.Run(relayCtx)
+	}()
+
 	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("server listening", "addr", cfg.HTTPAddr)
@@ -127,6 +148,9 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return err
 	}
+
+	relayCancel()
+	wg.Wait()
 
 	slog.Info("server stopped gracefully")
 

@@ -286,7 +286,7 @@ func TestCreateUser(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router := newRouter(&UserHandler{Storage: &mockStorage{}, Producer: noopProducer{}})
+			router := newRouter(&UserHandler{Storage: &mockStorage{}})
 
 			w := doRequest(t, router, http.MethodPost, "/users", tt.body)
 			if w.Code != tt.want {
@@ -297,7 +297,7 @@ func TestCreateUser(t *testing.T) {
 }
 
 func TestCreateUserReturnsID(t *testing.T) {
-	router := newRouter(&UserHandler{Storage: &mockStorage{}, Producer: noopProducer{}})
+	router := newRouter(&UserHandler{Storage: &mockStorage{}})
 
 	w := doRequest(t, router, http.MethodPost, "/users", `{"name": "Bob", "email": "bob@example.com"}`)
 	if w.Code != http.StatusCreated {
@@ -315,7 +315,7 @@ func TestCreateUserReturnsID(t *testing.T) {
 
 func TestCreateUserDuplicateEmail(t *testing.T) {
 	storage := &mockStorage{createErr: db.ErrDuplicateEmail}
-	router := newRouter(&UserHandler{Storage: storage, Producer: noopProducer{}})
+	router := newRouter(&UserHandler{Storage: storage})
 
 	w := doRequest(t, router, http.MethodPost, "/users", `{"name": "Bob", "email": "bob@example.com"}`)
 	if w.Code != http.StatusConflict {

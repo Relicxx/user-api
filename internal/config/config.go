@@ -16,6 +16,9 @@ type Config struct {
 	HTTPAddr        string
 	ShutdownTimeout time.Duration
 
+	OutboxPollInterval time.Duration
+	OutboxBatchSize    int
+
 	PprofEnabled bool
 	PprofAddr    string
 }
@@ -29,6 +32,14 @@ func Load() (*Config, error) {
 		HTTPAddr:        getEnvDefault("HTTP_ADDR", ":8080"),
 		ShutdownTimeout: 10 * time.Second,
 		PprofAddr:       getEnvDefault("PPROF_ADDR", "localhost:6060"),
+	}
+
+	var err error
+	if cfg.OutboxPollInterval, err = getEnvDuration("OUTBOX_POLL_INTERVAL", time.Second); err != nil {
+		return nil, err
+	}
+	if cfg.OutboxBatchSize, err = getEnvInt("OUTBOX_BATCH_SIZE", 100); err != nil {
+		return nil, err
 	}
 
 	if v := os.Getenv("PPROF_ENABLED"); v != "" {
@@ -58,4 +69,28 @@ func getEnvDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func getEnvDuration(key string, def time.Duration) (time.Duration, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("invalid %s value %q: must be a positive duration", key, v)
+	}
+	return d, nil
+}
+
+func getEnvInt(key string, def int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("invalid %s value %q: must be a positive integer", key, v)
+	}
+	return n, nil
 }

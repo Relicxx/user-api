@@ -3,7 +3,10 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"time"
 
 	"user-api/internal/model"
@@ -30,6 +33,8 @@ const (
 
 type UserStorage struct {
 	DB *sql.DB
+	// EventTopic is the Kafka topic recorded in outbox rows for user events.
+	EventTopic string
 }
 
 func ConnectDB(dsn string) (*sql.DB, error) {
@@ -57,18 +62,43 @@ func (s *UserStorage) Ping(ctx context.Context) error {
 	return s.DB.PingContext(ctx)
 }
 
+// CreateUser inserts the user and its user-created event into the outbox
+// in a single transaction, so the event is never lost and never emitted
+// for a rolled-back insert (transactional outbox).
 func (s *UserStorage) CreateUser(ctx context.Context, user *model.User) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	query := `INSERT INTO users
 	(name, email)
 	VALUES ($1, $2)
 	RETURNING id`
 
-	err := s.DB.QueryRowContext(ctx, query, user.Name, user.Email).Scan(&user.ID)
+	err = tx.QueryRowContext(ctx, query, user.Name, user.Email).Scan(&user.ID)
 	if isUniqueViolation(err) {
 		return ErrDuplicateEmail
 	}
+	if err != nil {
+		return err
+	}
 
-	return err
+	payload, err := json.Marshal(user)
+	if err != nil {
+		return fmt.Errorf("marshal user event: %w", err)
+	}
+
+	// Key is the user ID so all events for one user land in the same
+	// partition and keep their order.
+	if _, err = tx.ExecContext(ctx,
+		`INSERT INTO outbox (topic, key, payload) VALUES ($1, $2, $3)`,
+		s.EventTopic, strconv.Itoa(user.ID), payload); err != nil {
+		return fmt.Errorf("insert outbox event: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 func (s *UserStorage) GetUsers(ctx context.Context, limit, offset int) ([]model.User, error) {

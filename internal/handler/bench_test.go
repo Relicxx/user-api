@@ -47,10 +47,6 @@ func (m *memCache) Del(_ context.Context, key string) error {
 	return nil
 }
 
-type noopProducer struct{}
-
-func (noopProducer) PublishUserCreated(_ context.Context, _ *model.User) error { return nil }
-
 func BenchmarkGetUsers(b *testing.B) {
 	storage := &mockStorage{
 		users: []model.User{
@@ -114,10 +110,7 @@ func BenchmarkGetUserByID_CacheMiss(b *testing.B) {
 }
 
 func BenchmarkCreateUser(b *testing.B) {
-	router := newRouter(&UserHandler{
-		Storage:  &mockStorage{},
-		Producer: noopProducer{},
-	})
+	router := newRouter(&UserHandler{Storage: &mockStorage{}})
 
 	body := `{"name":"Alice","email":"alice@example.com"}`
 

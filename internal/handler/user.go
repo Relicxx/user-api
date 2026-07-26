@@ -35,14 +35,9 @@ type Cache interface {
 	Del(ctx context.Context, key string) error
 }
 
-type Producer interface {
-	PublishUserCreated(ctx context.Context, user *model.User) error
-}
-
 type UserHandler struct {
-	Storage  UserStorage
-	Cache    Cache
-	Producer Producer
+	Storage UserStorage
+	Cache   Cache
 }
 
 const (
@@ -122,10 +117,6 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errorWithJSON(w, http.StatusInternalServerError, "Failed to create user")
 		return
-	}
-
-	if err := h.Producer.PublishUserCreated(r.Context(), &user); err != nil {
-		slog.Error("failed to publish user-created event", "user_id", user.ID, "error", err)
 	}
 
 	responseWithJSON(w, http.StatusCreated, user)
@@ -298,8 +289,8 @@ func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	responseWithJSON(w, http.StatusOK, map[string]string{"message": "User deleted successfully"})
 }
 
-// invalidateUser удаляет пользователя из кеша после изменения/удаления,
-// чтобы cache-aside не отдавал устаревшие данные.
+// invalidateUser drops the user from the cache after an update or delete
+// so cache-aside reads never serve stale data.
 func (h *UserHandler) invalidateUser(ctx context.Context, id int) {
 	if h.Cache == nil {
 		return

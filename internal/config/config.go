@@ -19,6 +19,9 @@ type Config struct {
 	OutboxPollInterval time.Duration
 	OutboxBatchSize    int
 
+	RateLimitRPS   int
+	RateLimitBurst int
+
 	PprofEnabled bool
 	PprofAddr    string
 }
@@ -39,6 +42,12 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if cfg.OutboxBatchSize, err = getEnvInt("OUTBOX_BATCH_SIZE", 100); err != nil {
+		return nil, err
+	}
+	if cfg.RateLimitRPS, err = getEnvInt("RATE_LIMIT_RPS", 20); err != nil {
+		return nil, err
+	}
+	if cfg.RateLimitBurst, err = getEnvInt("RATE_LIMIT_BURST", 40); err != nil {
 		return nil, err
 	}
 

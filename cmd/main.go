@@ -18,10 +18,11 @@ import (
 	"user-api/internal/db"
 	"user-api/internal/handler"
 	"user-api/internal/metrics"
+	"user-api/internal/middleware"
 	"user-api/internal/outbox"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
 )
 
@@ -71,10 +72,12 @@ func run() error {
 		Cache: redisCache,
 	}
 
+	rateLimiter := middleware.NewRateLimiter(float64(cfg.RateLimitRPS), cfg.RateLimitBurst)
+
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
+	r.Use(chimw.Logger)
+	r.Use(chimw.Recoverer)
 	r.Use(metrics.Middleware)
 
 	r.Get("/healthz", health.Healthz)
@@ -82,6 +85,7 @@ func run() error {
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
 	r.Route("/users", func(r chi.Router) {
+		r.Use(rateLimiter.Handler)
 		r.Get("/", h.GetUsers)
 		r.Get("/{id}", h.GetUserByID)
 		r.Post("/", h.CreateUser)
@@ -109,6 +113,8 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	go rateLimiter.CleanupLoop(ctx, time.Minute, 10*time.Minute)
 
 	// The relay gets its own context so it keeps draining the outbox while
 	// the HTTP server finishes in-flight requests, and is stopped last.

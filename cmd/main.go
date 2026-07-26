@@ -76,7 +76,8 @@ func run() error {
 
 	r := chi.NewRouter()
 
-	r.Use(chimw.Logger)
+	r.Use(chimw.RequestID)
+	r.Use(middleware.RequestLogger(slog.Default()))
 	r.Use(chimw.Recoverer)
 	r.Use(metrics.Middleware)
 

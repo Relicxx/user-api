@@ -17,6 +17,7 @@ import (
 	"user-api/internal/config"
 	"user-api/internal/db"
 	"user-api/internal/handler"
+	"user-api/internal/metrics"
 	"user-api/internal/outbox"
 
 	"github.com/go-chi/chi/v5"
@@ -74,9 +75,11 @@ func run() error {
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(metrics.Middleware)
 
 	r.Get("/healthz", health.Healthz)
 	r.Get("/readyz", health.Readyz)
+	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
 	r.Route("/users", func(r chi.Router) {
 		r.Get("/", h.GetUsers)
@@ -114,7 +117,7 @@ func run() error {
 
 	relay := outbox.NewRelay(
 		&db.OutboxStorage{DB: dbs},
-		producer,
+		&metrics.InstrumentedPublisher{Next: producer},
 		cfg.OutboxPollInterval,
 		cfg.OutboxBatchSize,
 		slog.Default(),

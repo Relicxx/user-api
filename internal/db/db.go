@@ -97,10 +97,11 @@ func (s *UserStorage) CreateUser(ctx context.Context, user *model.User) error {
 	}
 
 	// Key is the user ID so all events for one user land in the same
-	// partition and keep their order.
+	// partition and keep their order. The payload is passed as text and
+	// cast: pgx would send []byte as bytea, which does not coerce to jsonb.
 	if _, err = tx.ExecContext(ctx,
-		`INSERT INTO outbox (topic, key, payload) VALUES ($1, $2, $3)`,
-		s.EventTopic, strconv.Itoa(user.ID), payload); err != nil {
+		`INSERT INTO outbox (topic, key, payload) VALUES ($1, $2, $3::jsonb)`,
+		s.EventTopic, strconv.Itoa(user.ID), string(payload)); err != nil {
 		return fmt.Errorf("insert outbox event: %w", err)
 	}
 

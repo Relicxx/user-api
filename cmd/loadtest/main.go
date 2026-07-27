@@ -1,3 +1,4 @@
+// Loadtest is a small HTTP load generator for exercising the running server.
 package main
 
 import (
@@ -48,7 +49,7 @@ func main() {
 						atomic.AddInt64(&success, 1)
 					}
 					if resp != nil {
-						resp.Body.Close()
+						_ = resp.Body.Close()
 					}
 				}
 			}

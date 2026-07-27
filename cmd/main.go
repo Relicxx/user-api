@@ -1,8 +1,11 @@
+// The user-api server: REST user CRUD backed by PostgreSQL, with Redis
+// cache-aside reads and Kafka events delivered via a transactional outbox.
 package main
 
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
@@ -33,6 +36,12 @@ const (
 	idleTimeout       = 60 * time.Second
 )
 
+func closeQuietly(c io.Closer, name string) {
+	if err := c.Close(); err != nil {
+		slog.Error("failed to close "+name, "error", err)
+	}
+}
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
@@ -56,11 +65,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer dbs.Close()
+	defer closeQuietly(dbs, "database")
 
 	redisCache := cache.NewRedisCache(cfg.RedisAddr)
 	producer := broker.NewKafkaProducer(cfg.KafkaAddr)
-	defer producer.Close()
+	defer closeQuietly(producer, "kafka producer")
 
 	storage := &db.UserStorage{DB: dbs, EventTopic: cfg.KafkaTopic}
 	h := &handler.UserHandler{

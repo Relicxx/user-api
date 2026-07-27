@@ -46,13 +46,13 @@ func (s *OutboxStorage) ProcessPending(ctx context.Context, limit int, publish o
 	for rows.Next() {
 		var m outbox.Message
 		if scanErr := rows.Scan(&m.ID, &m.Topic, &m.Key, &m.Payload); scanErr != nil {
-			rows.Close()
+			_ = rows.Close()
 			err = fmt.Errorf("scan outbox message: %w", scanErr)
 			return 0, err
 		}
 		msgs = append(msgs, m)
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err = rows.Err(); err != nil {
 		return 0, fmt.Errorf("iterate outbox messages: %w", err)
 	}

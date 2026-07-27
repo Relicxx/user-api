@@ -27,6 +27,8 @@ type RateLimiter struct {
 	burst    int
 }
 
+// NewRateLimiter builds a limiter allowing rps sustained requests with the
+// given burst per client IP.
 func NewRateLimiter(rps float64, burst int) *RateLimiter {
 	return &RateLimiter{
 		visitors: make(map[string]*visitor),

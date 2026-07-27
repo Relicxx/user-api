@@ -1,3 +1,4 @@
+// Package db implements PostgreSQL storage for users and the outbox.
 package db
 
 import (
@@ -12,9 +13,11 @@ import (
 	"user-api/internal/model"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/jackc/pgx/v5/stdlib" // register the pgx database/sql driver
 )
 
+// ErrDuplicateEmail is returned when an insert or update violates the
+// unique constraint on users.email.
 var ErrDuplicateEmail = errors.New("email already exists")
 
 const uniqueViolationCode = "23505"
@@ -31,12 +34,14 @@ const (
 	pingTimeout     = 5 * time.Second
 )
 
+// UserStorage is the PostgreSQL implementation of the user repository.
 type UserStorage struct {
 	DB *sql.DB
 	// EventTopic is the Kafka topic recorded in outbox rows for user events.
 	EventTopic string
 }
 
+// ConnectDB opens a pooled connection to PostgreSQL and verifies it with a ping.
 func ConnectDB(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -51,13 +56,14 @@ func ConnectDB(dsn string) (*sql.DB, error) {
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
 	return db, nil
 }
 
+// Ping reports whether the database is reachable.
 func (s *UserStorage) Ping(ctx context.Context) error {
 	return s.DB.PingContext(ctx)
 }
@@ -101,6 +107,7 @@ func (s *UserStorage) CreateUser(ctx context.Context, user *model.User) error {
 	return tx.Commit()
 }
 
+// GetUsers returns a page of users ordered by ID.
 func (s *UserStorage) GetUsers(ctx context.Context, limit, offset int) ([]model.User, error) {
 	query := `SELECT id, name, email
 	FROM users
@@ -111,7 +118,7 @@ func (s *UserStorage) GetUsers(ctx context.Context, limit, offset int) ([]model.
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var users []model.User
 
@@ -133,6 +140,7 @@ func (s *UserStorage) GetUsers(ctx context.Context, limit, offset int) ([]model.
 	return users, nil
 }
 
+// GetUserByID returns a single user or sql.ErrNoRows if it does not exist.
 func (s *UserStorage) GetUserByID(ctx context.Context, id int) (*model.User, error) {
 	query := `SELECT id, name, email
 	FROM users
@@ -147,6 +155,7 @@ func (s *UserStorage) GetUserByID(ctx context.Context, id int) (*model.User, err
 	return &user, nil
 }
 
+// UpdateUser updates name and email; sql.ErrNoRows means the ID is unknown.
 func (s *UserStorage) UpdateUser(ctx context.Context, user *model.User) error {
 	query := `UPDATE users
 	SET name = $1, email = $2, updated_at = now()
@@ -171,6 +180,7 @@ func (s *UserStorage) UpdateUser(ctx context.Context, user *model.User) error {
 	return nil
 }
 
+// DeleteUser removes a user; sql.ErrNoRows means the ID is unknown.
 func (s *UserStorage) DeleteUser(ctx context.Context, id int) error {
 	query := `DELETE FROM users
 	WHERE id = $1`

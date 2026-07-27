@@ -82,6 +82,7 @@ type InstrumentedPublisher struct {
 	Next outbox.Publisher
 }
 
+// Publish delegates to the wrapped publisher and counts the outcome.
 func (p *InstrumentedPublisher) Publish(ctx context.Context, topic, key string, payload []byte) error {
 	err := p.Next.Publish(ctx, topic, key, payload)
 	if err != nil {

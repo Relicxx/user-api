@@ -44,6 +44,7 @@ type Relay struct {
 	log       *slog.Logger
 }
 
+// NewRelay builds a relay; a nil logger falls back to slog.Default.
 func NewRelay(store Store, publisher Publisher, interval time.Duration, batchSize int, log *slog.Logger) *Relay {
 	if log == nil {
 		log = slog.Default()

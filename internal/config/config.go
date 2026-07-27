@@ -1,3 +1,5 @@
+// Package config loads and validates service configuration from the
+// environment, failing fast on missing or malformed values.
 package config
 
 import (
@@ -7,6 +9,7 @@ import (
 	"time"
 )
 
+// Config holds all runtime settings of the service.
 type Config struct {
 	DatabaseURL string
 	RedisAddr   string
@@ -26,6 +29,7 @@ type Config struct {
 	PprofAddr    string
 }
 
+// Load reads the configuration from environment variables and validates it.
 func Load() (*Config, error) {
 	cfg := &Config{
 		DatabaseURL:     os.Getenv("DATABASE_URL"),

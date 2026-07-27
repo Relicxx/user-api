@@ -1,3 +1,5 @@
+// Package handler contains the HTTP layer: user CRUD endpoints, request
+// validation and health probes.
 package handler
 
 import (
@@ -21,6 +23,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// UserStorage abstracts user persistence so handlers can be tested
+// against an in-memory implementation.
 type UserStorage interface {
 	GetUsers(ctx context.Context, limit, offset int) ([]model.User, error)
 	GetUserByID(ctx context.Context, id int) (*model.User, error)
@@ -29,12 +33,14 @@ type UserStorage interface {
 	DeleteUser(ctx context.Context, id int) error
 }
 
+// Cache is the subset of cache operations the handlers need.
 type Cache interface {
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	Get(ctx context.Context, key string) ([]byte, error)
 	Del(ctx context.Context, key string) error
 }
 
+// UserHandler serves the /users endpoints.
 type UserHandler struct {
 	Storage UserStorage
 	Cache   Cache
@@ -91,6 +97,8 @@ func validateUser(user *model.User) error {
 	return nil
 }
 
+// CreateUser handles POST /users: validates the body, stores the user and
+// records a user-created event in the outbox within the same transaction.
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var user model.User
 	err := decodeBody(w, r, &user)
@@ -152,6 +160,7 @@ func parseLimitOffset(r *http.Request) (limit, offset int, err error) {
 	return limit, offset, nil
 }
 
+// GetUsers handles GET /users with limit/offset pagination.
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	limit, offset, err := parseLimitOffset(r)
 	if err != nil {
@@ -171,6 +180,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	responseWithJSON(w, http.StatusOK, users)
 }
 
+// GetUserByID handles GET /users/{id} with cache-aside reads.
 func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -222,6 +232,7 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 	responseWithJSON(w, http.StatusOK, user)
 }
 
+// UpdateUser handles PUT /users/{id} and invalidates the cached entry.
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -267,6 +278,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	responseWithJSON(w, http.StatusOK, map[string]string{"message": "User updated successfully"})
 }
 
+// DeleteUser handles DELETE /users/{id} and invalidates the cached entry.
 func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {

@@ -66,7 +66,8 @@ user-api/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── Makefile
-└── .env.example
+├── .env.example
+└── .env.docker.example
 ```
 
 ## Configuration
@@ -110,10 +111,13 @@ make run
 
 ### Docker Compose
 
-Brings up the app together with PostgreSQL, Redis and Kafka:
+Brings up the app together with PostgreSQL, Redis and Kafka. Migrations are
+applied automatically by a one-shot `migrate` service (goose), and the Kafka
+topic is pre-created by a one-shot `kafka-init` service before the app starts.
 
 ```bash
-docker compose up --build
+make up
+# or: cp .env.docker.example .env.docker && docker compose up --build
 ```
 
 Postgres credentials are parametrized via `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` (with dev defaults). Kafka is reachable as `kafka:9092` from inside the compose network and as `localhost:29092` from the host.
@@ -191,6 +195,8 @@ Creating a user does **not** publish to Kafka inline. Instead the event is inser
 3. Marks delivered events and commits.
 
 On a publish failure the batch stops at the failed event and is retried on the next poll. Delivery is **at-least-once** — a crash between publish and commit re-sends the batch — so consumers must be idempotent.
+
+In docker-compose the topic is pre-created by a one-shot `kafka-init` service, so the first event publishes cleanly. On a broker where the topic does not exist yet, the very first publish may log a retriable `Unknown Topic Or Partition` error while the topic is being auto-created; the relay retries and delivers the event on the next poll.
 
 ```json
 {"id": 1, "name": "Alice", "email": "alice@example.com"}

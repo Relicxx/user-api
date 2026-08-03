@@ -1,4 +1,4 @@
-.PHONY: build test lint run migrate
+.PHONY: build test lint run migrate up down
 
 build:
 	go build ./...
@@ -14,3 +14,12 @@ run:
 
 migrate:
 	goose -dir migrations postgres "$(DATABASE_URL)" up
+
+.env.docker: .env.docker.example
+	cp .env.docker.example .env.docker
+
+up: .env.docker
+	docker compose up --build
+
+down:
+	docker compose down

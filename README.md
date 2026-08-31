@@ -9,7 +9,7 @@ flowchart LR
     Client([Client])
 
     subgraph service [user-api]
-        MW["Middleware<br/>request ID · slog access log<br/>rate limit · Prometheus"]
+        MW["Middleware<br/>request ID · slog access log<br/>rate limit · JWT auth · Prometheus"]
         H[Handlers]
         Relay["Outbox relay<br/>(background goroutine)"]
     end
@@ -40,6 +40,7 @@ Creating a user writes the row **and** its event into an `outbox` table in a sin
 | Config | env vars + [godotenv](https://github.com/joho/godotenv) |
 | Logging | log/slog (JSON), structured access logs with request IDs |
 | Metrics | Prometheus ([client_golang](https://github.com/prometheus/client_golang)), `/metrics` |
+| Auth | HS256 bearer JWT ([golang-jwt/v5](https://github.com/golang-jwt/jwt)) on mutating endpoints |
 | Rate limiting | per-IP token bucket ([x/time/rate](https://pkg.go.dev/golang.org/x/time/rate)) |
 | Container | Docker (multi-stage build, non-root) |
 | CI | GitHub Actions (build, vet, gofmt, test -race, golangci-lint) |
@@ -53,7 +54,7 @@ user-api/
 │   └── loadtest/        # standalone HTTP load generator
 ├── internal/
 │   ├── handler/         # HTTP handlers, UserStorage interface, health checks
-│   ├── middleware/      # per-IP rate limiting, slog request logging
+│   ├── middleware/      # JWT auth, per-IP rate limiting, slog request logging
 │   ├── metrics/         # Prometheus instrumentation
 │   ├── outbox/          # outbox relay (poll → publish → mark)
 │   ├── db/              # PostgreSQL implementation, outbox storage, pool
@@ -85,6 +86,11 @@ All configuration is read from environment variables (or `.env`) and validated a
 | `OUTBOX_BATCH_SIZE` | no | `100` | Max events published per outbox batch |
 | `RATE_LIMIT_RPS` | no | `20` | Sustained per-IP request rate on `/users` |
 | `RATE_LIMIT_BURST` | no | `40` | Per-IP burst size on `/users` |
+| `AUTH_ENABLED` | no | `true` | Require a bearer JWT on `POST`/`PUT`/`DELETE /users` |
+| `AUTH_CLIENT_ID` | when auth enabled | — | Client ID accepted by `POST /auth/token` |
+| `AUTH_CLIENT_SECRET` | when auth enabled | — | Client secret accepted by `POST /auth/token` |
+| `JWT_SECRET` | when auth enabled | — | HS256 signing secret for issued tokens |
+| `JWT_TTL` | no | `15m` | Lifetime of issued access tokens |
 | `PPROF_ENABLED` | no | `false` | Enable pprof debug server |
 | `PPROF_ADDR` | no | `localhost:6060` | pprof listen address (localhost only) |
 
@@ -124,16 +130,21 @@ Postgres credentials are parametrized via `POSTGRES_USER` / `POSTGRES_PASSWORD` 
 
 ## Endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/users?limit=&offset=` | List users (paginated) |
-| GET | `/users/{id}` | Get user by ID (cached) |
-| POST | `/users` | Create user + enqueue Kafka event via outbox |
-| PUT | `/users/{id}` | Update user |
-| DELETE | `/users/{id}` | Delete user |
-| GET | `/healthz` | Liveness probe |
-| GET | `/readyz` | Readiness probe (pings PostgreSQL and Redis) |
-| GET | `/metrics` | Prometheus metrics |
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/auth/token` | — | Exchange client credentials for a bearer JWT |
+| GET | `/users?limit=&offset=` | — | List users (paginated) |
+| GET | `/users/{id}` | — | Get user by ID (cached) |
+| POST | `/users` | bearer JWT | Create user + enqueue Kafka event via outbox |
+| PUT | `/users/{id}` | bearer JWT | Update user |
+| DELETE | `/users/{id}` | bearer JWT | Delete user |
+| GET | `/healthz` | — | Liveness probe |
+| GET | `/readyz` | — | Readiness probe (pings PostgreSQL and Redis) |
+| GET | `/metrics` | — | Prometheus metrics |
+
+### Authentication
+
+Mutating endpoints (`POST`/`PUT`/`DELETE /users`) require an HS256 bearer JWT issued by `POST /auth/token`. Reads, health probes and `/metrics` stay open. Requests without a valid token get `401` with a `WWW-Authenticate: Bearer` challenge. Set `AUTH_ENABLED=false` to switch auth off (e.g. for local experiments); when it is on, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET` and `JWT_SECRET` must be set or the server refuses to start.
 
 ### Pagination
 
@@ -146,6 +157,7 @@ curl "http://localhost:8080/users?limit=10&offset=20"
 ### Status codes
 
 - `400` — invalid ID, body, pagination params, or validation failure (name/email required, valid email format, name up to 100 characters)
+- `401` — missing/invalid bearer token on a mutating endpoint, or wrong client credentials on `/auth/token`
 - `404` — user not found (also for update/delete of a missing ID)
 - `409` — email already taken (unique constraint)
 - `413` — request body larger than 1 MiB
@@ -153,14 +165,28 @@ curl "http://localhost:8080/users?limit=10&offset=20"
 
 ## Example requests
 
+**Get a token** (credentials from `AUTH_CLIENT_ID` / `AUTH_CLIENT_SECRET`)
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"client_id": "user-api-client", "client_secret": "change-me"}' \
+  | jq -r .access_token)
+```
+
+Response:
+```json
+{"access_token": "eyJhbGciOiJIUzI1NiIs...", "token_type": "Bearer", "expires_in": 900}
+```
+
 **Create user**
 ```bash
 curl -X POST http://localhost:8080/users \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice", "email": "alice@example.com"}'
 ```
 
-**Get user by ID** (first call hits DB and caches; second call served from Redis)
+**Get user by ID** (no token needed; first call hits DB and caches; second call served from Redis)
 ```bash
 curl http://localhost:8080/users/1
 curl http://localhost:8080/users/1  # served from Redis cache
@@ -169,13 +195,15 @@ curl http://localhost:8080/users/1  # served from Redis cache
 **Update user**
 ```bash
 curl -X PUT http://localhost:8080/users/1 \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice Smith", "email": "alice@example.com"}'
 ```
 
 **Delete user**
 ```bash
-curl -X DELETE http://localhost:8080/users/1
+curl -X DELETE http://localhost:8080/users/1 \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Caching strategy

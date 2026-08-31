@@ -1,5 +1,5 @@
 // Package middleware provides HTTP middleware for the service: per-IP rate
-// limiting and structured request logging.
+// limiting, JWT authentication and structured request logging.
 package middleware
 
 import (

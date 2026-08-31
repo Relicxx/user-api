@@ -25,6 +25,12 @@ type Config struct {
 	RateLimitRPS   int
 	RateLimitBurst int
 
+	AuthEnabled      bool
+	AuthClientID     string
+	AuthClientSecret string
+	JWTSecret        string
+	JWTTTL           time.Duration
+
 	PprofEnabled bool
 	PprofAddr    string
 }
@@ -32,13 +38,17 @@ type Config struct {
 // Load reads the configuration from environment variables and validates it.
 func Load() (*Config, error) {
 	cfg := &Config{
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		RedisAddr:       os.Getenv("REDIS_URL"),
-		KafkaAddr:       os.Getenv("KAFKA_ADDR"),
-		KafkaTopic:      getEnvDefault("KAFKA_TOPIC", "user-created"),
-		HTTPAddr:        getEnvDefault("HTTP_ADDR", ":8080"),
-		ShutdownTimeout: 10 * time.Second,
-		PprofAddr:       getEnvDefault("PPROF_ADDR", "localhost:6060"),
+		DatabaseURL:      os.Getenv("DATABASE_URL"),
+		RedisAddr:        os.Getenv("REDIS_URL"),
+		KafkaAddr:        os.Getenv("KAFKA_ADDR"),
+		KafkaTopic:       getEnvDefault("KAFKA_TOPIC", "user-created"),
+		HTTPAddr:         getEnvDefault("HTTP_ADDR", ":8080"),
+		ShutdownTimeout:  10 * time.Second,
+		AuthEnabled:      true,
+		AuthClientID:     os.Getenv("AUTH_CLIENT_ID"),
+		AuthClientSecret: os.Getenv("AUTH_CLIENT_SECRET"),
+		JWTSecret:        os.Getenv("JWT_SECRET"),
+		PprofAddr:        getEnvDefault("PPROF_ADDR", "localhost:6060"),
 	}
 
 	var err error
@@ -54,6 +64,19 @@ func Load() (*Config, error) {
 	if cfg.RateLimitBurst, err = getEnvInt("RATE_LIMIT_BURST", 40); err != nil {
 		return nil, err
 	}
+	if cfg.JWTTTL, err = getEnvDuration("JWT_TTL", 15*time.Minute); err != nil {
+		return nil, err
+	}
+
+	// Auth is on by default so mutating endpoints are never left open by
+	// accident; disabling it is an explicit opt-out.
+	if v := os.Getenv("AUTH_ENABLED"); v != "" {
+		enabled, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid AUTH_ENABLED value %q: %w", v, err)
+		}
+		cfg.AuthEnabled = enabled
+	}
 
 	if v := os.Getenv("PPROF_ENABLED"); v != "" {
 		enabled, err := strconv.ParseBool(v)
@@ -67,6 +90,11 @@ func Load() (*Config, error) {
 		"DATABASE_URL": cfg.DatabaseURL,
 		"REDIS_URL":    cfg.RedisAddr,
 		"KAFKA_ADDR":   cfg.KafkaAddr,
+	}
+	if cfg.AuthEnabled {
+		required["AUTH_CLIENT_ID"] = cfg.AuthClientID
+		required["AUTH_CLIENT_SECRET"] = cfg.AuthClientSecret
+		required["JWT_SECRET"] = cfg.JWTSecret
 	}
 	for name, value := range required {
 		if value == "" {

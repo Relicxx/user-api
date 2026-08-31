@@ -1,5 +1,5 @@
-// Package handler contains the HTTP layer: user CRUD endpoints, request
-// validation and health probes.
+// Package handler contains the HTTP layer: user CRUD endpoints, token
+// issuance, request validation and health probes.
 package handler
 
 import (

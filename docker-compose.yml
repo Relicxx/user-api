@@ -3,6 +3,8 @@ services:
     build: .
     ports:
       - "8080:8080"
+    # All app environment, including the JWT auth settings (AUTH_CLIENT_ID,
+    # AUTH_CLIENT_SECRET, JWT_SECRET), comes from .env.docker.
     env_file:
       - .env.docker
     depends_on:

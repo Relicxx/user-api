@@ -94,13 +94,31 @@ func run() error {
 	r.Get("/readyz", health.Readyz)
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
+	if cfg.AuthEnabled {
+		auth := &handler.AuthHandler{
+			ClientID:     cfg.AuthClientID,
+			ClientSecret: cfg.AuthClientSecret,
+			JWTSecret:    []byte(cfg.JWTSecret),
+			TokenTTL:     cfg.JWTTTL,
+		}
+		r.With(rateLimiter.Handler).Post("/auth/token", auth.Token)
+	}
+
 	r.Route("/users", func(r chi.Router) {
 		r.Use(rateLimiter.Handler)
 		r.Get("/", h.GetUsers)
 		r.Get("/{id}", h.GetUserByID)
-		r.Post("/", h.CreateUser)
-		r.Put("/{id}", h.UpdateUser)
-		r.Delete("/{id}", h.DeleteUser)
+
+		// Mutating endpoints require a bearer token; reads stay open.
+		r.Group(func(r chi.Router) {
+			if cfg.AuthEnabled {
+				jwtAuth := middleware.NewJWTAuth([]byte(cfg.JWTSecret), slog.Default())
+				r.Use(jwtAuth.Handler)
+			}
+			r.Post("/", h.CreateUser)
+			r.Put("/{id}", h.UpdateUser)
+			r.Delete("/{id}", h.DeleteUser)
+		})
 	})
 
 	if cfg.PprofEnabled {

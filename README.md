@@ -9,7 +9,7 @@ flowchart LR
     Client([Client])
 
     subgraph service [user-api]
-        MW["Middleware<br/>request ID · slog access log<br/>rate limit · JWT auth · Prometheus"]
+        MW["Middleware<br/>request ID · slog access log<br/>rate limit · JWT auth"]
         H[Handlers]
         Relay["Outbox relay<br/>(background goroutine)"]
     end
@@ -39,11 +39,9 @@ Creating a user writes the row **and** its event into an `outbox` table in a sin
 | Migrations | [goose](https://github.com/pressly/goose) |
 | Config | env vars + [godotenv](https://github.com/joho/godotenv) |
 | Logging | log/slog (JSON), structured access logs with request IDs |
-| Metrics | Prometheus ([client_golang](https://github.com/prometheus/client_golang)), `/metrics` |
 | Auth | HS256 bearer JWT ([golang-jwt/v5](https://github.com/golang-jwt/jwt)) on mutating endpoints |
 | Rate limiting | per-IP token bucket ([x/time/rate](https://pkg.go.dev/golang.org/x/time/rate)) |
 | Container | Docker (multi-stage build, non-root) |
-| CI | GitHub Actions (build, vet, gofmt, test -race, golangci-lint) |
 
 ## Project structure
 
@@ -55,7 +53,6 @@ user-api/
 ├── internal/
 │   ├── handler/         # HTTP handlers, UserStorage interface, health checks
 │   ├── middleware/      # JWT auth, per-IP rate limiting, slog request logging
-│   ├── metrics/         # Prometheus instrumentation
 │   ├── outbox/          # outbox relay (poll → publish → mark)
 │   ├── db/              # PostgreSQL implementation, outbox storage, pool
 │   ├── cache/           # Redis cache (cache-aside, miss vs error)
@@ -63,7 +60,6 @@ user-api/
 │   ├── config/          # typed config, fail-fast env validation
 │   └── model/           # User struct
 ├── migrations/          # goose SQL migrations
-├── .github/workflows/   # CI pipeline
 ├── Dockerfile
 ├── docker-compose.yml
 ├── Makefile
@@ -140,11 +136,10 @@ Postgres credentials are parametrized via `POSTGRES_USER` / `POSTGRES_PASSWORD` 
 | DELETE | `/users/{id}` | bearer JWT | Delete user |
 | GET | `/healthz` | — | Liveness probe |
 | GET | `/readyz` | — | Readiness probe (pings PostgreSQL and Redis) |
-| GET | `/metrics` | — | Prometheus metrics |
 
 ### Authentication
 
-Mutating endpoints (`POST`/`PUT`/`DELETE /users`) require an HS256 bearer JWT issued by `POST /auth/token`. Reads, health probes and `/metrics` stay open. Requests without a valid token get `401` with a `WWW-Authenticate: Bearer` challenge. Set `AUTH_ENABLED=false` to switch auth off (e.g. for local experiments); when it is on, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET` and `JWT_SECRET` must be set or the server refuses to start.
+Mutating endpoints (`POST`/`PUT`/`DELETE /users`) require an HS256 bearer JWT issued by `POST /auth/token`. Reads and health probes stay open. Requests without a valid token get `401` with a `WWW-Authenticate: Bearer` challenge. Set `AUTH_ENABLED=false` to switch auth off (e.g. for local experiments); when it is on, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET` and `JWT_SECRET` must be set or the server refuses to start.
 
 ### Pagination
 
@@ -241,28 +236,18 @@ kafka-console-consumer.sh \
 ## Observability
 
 - **Structured logs**: everything (including access logs) is JSON via `log/slog`. Each request gets a request ID, logged and echoed in the `X-Request-ID` response header for correlation.
-- **Metrics** (`/metrics`): `http_requests_total{method,route,status}`, `http_request_duration_seconds{method,route}`, `http_requests_in_flight`, `outbox_events_published_total`, `outbox_publish_errors_total`. Route labels use chi patterns (`/users/{id}`), keeping cardinality bounded.
-
-## Rate limiting
-
-`/users` endpoints are limited per client IP with a token bucket (default 20 rps, burst 40; see `RATE_LIMIT_*`). Over-limit requests get `429` with a `Retry-After` header. Health probes and `/metrics` are exempt. The limiter is in-memory (per instance) and evicts idle IPs in the background.
-
-## Operations
-
 - **Graceful shutdown**: SIGINT/SIGTERM drains in-flight requests (10s timeout), then stops the outbox relay and closes DB/Kafka connections.
 - **Timeouts**: the HTTP server sets read/write/idle timeouts; request bodies are capped at 1 MiB.
 - **pprof**: set `PPROF_ENABLED=true` to expose the profiler on `localhost:6060` (never exposed by default).
 
-## Testing & CI
+## Testing
 
-Handler, middleware, metrics and outbox-relay tests use mocked storage/cache/broker — no real infrastructure required:
+Handler, middleware and outbox-relay tests use mocked storage/cache/broker — no real infrastructure required:
 
 ```bash
 make test        # go test -race -cover ./...
 make lint        # golangci-lint run
 ```
-
-CI (GitHub Actions) runs `go build`, `go vet`, a gofmt check, `go test -race -cover` and `golangci-lint` on every push and pull request.
 
 ## Benchmarks & load test
 

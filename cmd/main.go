@@ -20,7 +20,6 @@ import (
 	"user-api/internal/config"
 	"user-api/internal/db"
 	"user-api/internal/handler"
-	"user-api/internal/metrics"
 	"user-api/internal/middleware"
 	"user-api/internal/outbox"
 
@@ -88,11 +87,9 @@ func run() error {
 	r.Use(chimw.RequestID)
 	r.Use(middleware.RequestLogger(slog.Default()))
 	r.Use(chimw.Recoverer)
-	r.Use(metrics.Middleware)
 
 	r.Get("/healthz", health.Healthz)
 	r.Get("/readyz", health.Readyz)
-	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
 	if cfg.AuthEnabled {
 		auth := &handler.AuthHandler{
@@ -151,7 +148,7 @@ func run() error {
 
 	relay := outbox.NewRelay(
 		&db.OutboxStorage{DB: dbs},
-		&metrics.InstrumentedPublisher{Next: producer},
+		producer,
 		cfg.OutboxPollInterval,
 		cfg.OutboxBatchSize,
 		slog.Default(),
